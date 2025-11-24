@@ -1,0 +1,23 @@
+name: recursive_reasoning.lstm@Model_LSTM
+loss:
+  name: losses@ACTLossHead
+  loss_type: stablemax_cross_entropy
+
+# Halting parameters
+halt_exploration_prob: 0.1
+halt_max_steps: 16
+act_enabled: true  # Use ACT during training
+act_inference: false  # Don't use ACT during inference (use max steps for batching)
+
+# LSTM parameters
+hidden_size: 512
+num_layers: 4
+dropout: 0.1
+bidirectional: true  # Bidirectional LSTM for better context modeling
+
+# Puzzle embedding
+puzzle_emb_ndim: ${.hidden_size}
+puzzle_emb_len: 16
+
+# Forward dtype
+forward_dtype: bfloat16

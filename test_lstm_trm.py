@@ -3,7 +3,7 @@ Test script for LSTM-TRM to verify it works correctly.
 """
 
 import torch
-from models.recursive_reasoning.trm_lstm import LSTMTRM, LSTMTRMCarry
+from models.recursive_reasoning.old.trm_lstm import LSTMTRM, LSTMTRMCarry
 
 def test_lstm_trm():
     """Test basic LSTM-TRM functionality"""

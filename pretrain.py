@@ -16,7 +16,7 @@ import wandb
 import coolname
 import hydra
 import pydantic
-from omegaconf import DictConfig
+from omegaconf import OmegaConf, DictConfig
 from adam_atan2_pytorch import AdamAtan2 as AdamATan2
 
 from puzzle_dataset import PuzzleDataset, PuzzleDatasetConfig, PuzzleDatasetMetadata
@@ -83,6 +83,10 @@ class PretrainConfig(pydantic.BaseModel):
     ema_rate: float = 0.999 # EMA-rate
     freeze_weights: bool = False # If True, freeze weights and only learn the embeddings
 
+    # Autoresume support
+    start_epoch: int = 0 # Starting epoch (for resuming)
+    epochs_per_run: Optional[int] = None # Number of epochs to run in this invocation (None = run all remaining)
+
 @dataclass
 class TrainState:
     model: nn.Module
@@ -92,6 +96,7 @@ class TrainState:
 
     step: int
     total_steps: int
+    current_epoch: int = 0  # Track current epoch for autoresume
 
 
 def create_dataloader(config: PretrainConfig, split: str, rank: int, world_size: int, **kwargs):
@@ -225,9 +230,27 @@ def init_train_state(config: PretrainConfig, train_metadata: PuzzleDatasetMetada
     # Model
     model, optimizers, optimizer_lrs = create_model(config, train_metadata, rank=rank, world_size=world_size)
 
+    # Load training metadata for autoresume (only on rank 0, then broadcast)
+    current_epoch = config.start_epoch
+    step = 0
+    if rank == 0:
+        metadata = load_training_metadata(config)
+        if metadata is not None:
+            current_epoch = metadata['current_epoch']
+            step = metadata['step']
+            print(f"Resuming from epoch {current_epoch}, step {step}")
+
+    # Broadcast to all ranks
+    if world_size > 1:
+        metadata_list = [{'current_epoch': current_epoch, 'step': step}]
+        dist.broadcast_object_list(metadata_list, src=0)
+        current_epoch = metadata_list[0]['current_epoch']
+        step = metadata_list[0]['step']
+
     return TrainState(
-        step=0,
+        step=step,
         total_steps=total_steps,
+        current_epoch=current_epoch,
 
         model=model,
         optimizers=optimizers,
@@ -237,20 +260,62 @@ def init_train_state(config: PretrainConfig, train_metadata: PuzzleDatasetMetada
 
 
 def save_train_state(config: PretrainConfig, train_state: TrainState):
-    # FIXME: Only saved model.
     if config.checkpoint_path is None:
         return
 
     os.makedirs(config.checkpoint_path, exist_ok=True)
+
+    # Save model state
     torch.save(train_state.model.state_dict(), os.path.join(config.checkpoint_path, f"step_{train_state.step}"))
+
+    # Save training metadata (epoch, step) for autoresume
+    metadata = {
+        'current_epoch': train_state.current_epoch,
+        'step': train_state.step,
+    }
+    torch.save(metadata, os.path.join(config.checkpoint_path, "training_metadata.pt"))
+
+
+def find_latest_checkpoint(checkpoint_path: str):
+    """Find the latest checkpoint file in the checkpoint directory."""
+    if not os.path.exists(checkpoint_path):
+        return None
+
+    # Find all checkpoint files (step_*)
+    checkpoint_files = [f for f in os.listdir(checkpoint_path) if f.startswith("step_")]
+    if not checkpoint_files:
+        return None
+
+    # Extract step numbers and find the latest
+    step_numbers = []
+    for f in checkpoint_files:
+        try:
+            step_num = int(f.split("_")[1])
+            step_numbers.append((step_num, f))
+        except (ValueError, IndexError):
+            continue
+
+    if not step_numbers:
+        return None
+
+    latest = max(step_numbers, key=lambda x: x[0])
+    return os.path.join(checkpoint_path, latest[1])
 
 
 def load_checkpoint(model: nn.Module, config: PretrainConfig):
-    if config.load_checkpoint is not None:
-        print(f"Loading checkpoint {config.load_checkpoint}")
+    checkpoint_file = config.load_checkpoint
+
+    # If not specified but checkpoint_path exists, try to find latest checkpoint
+    if checkpoint_file is None and config.checkpoint_path is not None:
+        checkpoint_file = find_latest_checkpoint(config.checkpoint_path)
+        if checkpoint_file is not None:
+            print(f"Auto-found latest checkpoint: {checkpoint_file}")
+
+    if checkpoint_file is not None:
+        print(f"Loading checkpoint {checkpoint_file}")
 
         # Load state dict
-        state_dict = torch.load(config.load_checkpoint, map_location="cuda")
+        state_dict = torch.load(checkpoint_file, map_location="cuda")
 
         # Resize and reset puzzle emb if needed
         puzzle_emb_name = "_orig_mod.model.inner.puzzle_emb.weights"
@@ -264,6 +329,19 @@ def load_checkpoint(model: nn.Module, config: PretrainConfig):
                     torch.mean(puzzle_emb, dim=0, keepdim=True).expand(expected_shape).contiguous()
                 )
         model.load_state_dict(state_dict, assign=True)
+
+
+def load_training_metadata(config: PretrainConfig):
+    """Load training metadata (current_epoch, step) for autoresume."""
+    if config.checkpoint_path is None:
+        return None
+
+    metadata_path = os.path.join(config.checkpoint_path, "training_metadata.pt")
+    if os.path.exists(metadata_path):
+        metadata = torch.load(metadata_path, map_location="cpu")
+        print(f"Loaded training metadata: epoch={metadata['current_epoch']}, step={metadata['step']}")
+        return metadata
+    return None
 
 
 def compute_lr(base_lr: float, config: PretrainConfig, train_state: TrainState):
@@ -509,7 +587,9 @@ def save_code_and_config(config: PretrainConfig):
     # Dump config as yaml
     config_file = os.path.join(config.checkpoint_path, "all_config.yaml")
     with open(config_file, "wt") as f:
-        yaml.dump(config.model_dump(), f)
+        config_dict = config.model_dump()
+        config_dict = OmegaConf.to_container(OmegaConf.create(config_dict), resolve=True)
+        yaml.dump(config_dict, f, default_flow_style=False)
 
     # Log code
     wandb.run.log_code(config.checkpoint_path)
@@ -592,7 +672,7 @@ def launch(hydra_config: DictConfig):
     ema_helper = None
     if RANK == 0:
         progress_bar = tqdm.tqdm(total=train_state.total_steps)
-        wandb.init(project=config.project_name, name=config.run_name, config=config.model_dump(), settings=wandb.Settings(_disable_stats=True))  # type: ignore
+        wandb.init(project=config.project_name, name=config.run_name, config=config.model_dump(), settings=wandb.Settings(_disable_stats=False))  # type: ignore
         wandb.log({"num_params": sum(x.numel() for x in train_state.model.parameters())}, step=0)
         save_code_and_config(config)
     if config.ema:
@@ -600,9 +680,24 @@ def launch(hydra_config: DictConfig):
         ema_helper = EMAHelper(mu=config.ema_rate)
         ema_helper.register(train_state.model)
 
-    # Training Loop
-    for _iter_id in range(total_iters):
-        print (f"[Rank {RANK}, World Size {WORLD_SIZE}]: Epoch {_iter_id * train_epochs_per_iter}")
+    # Training Loop - calculate which iterations to run
+    # Calculate starting iteration based on current_epoch
+    start_iter = train_state.current_epoch // train_epochs_per_iter
+
+    # Calculate ending iteration based on epochs_per_run (if specified)
+    if config.epochs_per_run is not None:
+        end_epoch = min(train_state.current_epoch + config.epochs_per_run, config.epochs)
+        end_iter = end_epoch // train_epochs_per_iter
+        if RANK == 0:
+            print(f"Running from epoch {train_state.current_epoch} to {end_epoch} (iterations {start_iter} to {end_iter})")
+    else:
+        end_iter = total_iters
+        if RANK == 0:
+            print(f"Running from epoch {train_state.current_epoch} to {config.epochs} (iterations {start_iter} to {end_iter})")
+
+    for _iter_id in range(start_iter, end_iter):
+        current_epoch = _iter_id * train_epochs_per_iter
+        print (f"[Rank {RANK}, World Size {WORLD_SIZE}]: Epoch {current_epoch}")
 
         ############ Train Iter
         if RANK == 0:
@@ -616,6 +711,9 @@ def launch(hydra_config: DictConfig):
                 progress_bar.update(train_state.step - progress_bar.n)  # type: ignore
             if config.ema:
                 ema_helper.update(train_state.model)
+
+        # Update current_epoch in train_state
+        train_state.current_epoch = current_epoch + train_epochs_per_iter
 
         if _iter_id >= config.min_eval_interval:
             ############ Evaluation
@@ -643,7 +741,7 @@ def launch(hydra_config: DictConfig):
             ############ Checkpointing
             if RANK == 0:
                 print("SAVE CHECKPOINT")
-            if RANK == 0 and (config.checkpoint_every_eval or (_iter_id == total_iters - 1)):
+            if RANK == 0 and (config.checkpoint_every_eval or (_iter_id == end_iter - 1)):
                 save_train_state(config, train_state_eval)
 
             if config.ema:
