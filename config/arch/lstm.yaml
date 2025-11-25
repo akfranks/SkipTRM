@@ -1,4 +1,4 @@
-name: recursive_reasoning.lstm@Model_LSTM
+name: recursive_reasoning.lstm@TinyRecursiveReasoningModel_ACTV1
 loss:
   name: losses@ACTLossHead
   loss_type: stablemax_cross_entropy
@@ -6,14 +6,25 @@ loss:
 # Halting parameters
 halt_exploration_prob: 0.1
 halt_max_steps: 16
-act_enabled: true  # Use ACT during training
-act_inference: false  # Don't use ACT during inference (use max steps for batching)
 
-# LSTM parameters
+# Cycle parameters (similar to TRM)
+H_cycles: 3
+L_cycles: 6
+
+# Layer parameters (mostly ignored for LSTM, but required by config)
+H_layers: 0
+L_layers: 0
+
+# LSTM-specific parameters
 hidden_size: 512
 num_layers: 4
 dropout: 0.1
 bidirectional: false
+
+# Transformer parameters (not used by LSTM but required by config class)
+num_heads: 8
+expansion: 4
+pos_encodings: rope
 
 # Puzzle embedding
 puzzle_emb_ndim: ${.hidden_size}
@@ -21,3 +32,7 @@ puzzle_emb_len: 16
 
 # Forward dtype
 forward_dtype: bfloat16
+
+# ACT settings
+mlp_t: false
+no_ACT_continue: true

@@ -532,23 +532,10 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
     #         z_L=torch.where(reset_flag.view(-1, 1, 1), self.L_init, carry.z_L),
     #     )
     def reset_carry(self, reset_flag: torch.Tensor, carry: TinyRecursiveReasoningModel_ACTV1InnerCarry):
-        # DEBUG: Print input shapes
-        print(f"\n[DEBUG reset_carry]")
-        print(f"  reset_flag.shape: {reset_flag.shape}")
-        print(f"  carry.z_H.shape: {carry.z_H.shape}, dim: {carry.z_H.dim()}")
-        print(f"  carry.z_L.shape: {carry.z_L.shape}, dim: {carry.z_L.dim()}")
-        print(f"  self.H_init.shape: {self.H_init.shape}")
-        print(f"  self.H_init.unsqueeze(0).shape: {self.H_init.unsqueeze(0).shape}")
-
-        result = TinyRecursiveReasoningModel_ACTV1InnerCarry(
+        return TinyRecursiveReasoningModel_ACTV1InnerCarry(
             z_H=torch.where(reset_flag.view(-1, 1, 1), self.H_init.unsqueeze(0), carry.z_H),
             z_L=torch.where(reset_flag.view(-1, 1, 1), self.L_init.unsqueeze(0), carry.z_L),
         )
-
-        print(f"  result.z_H.shape: {result.z_H.shape}, dim: {result.z_H.dim()}")
-        print(f"  result.z_L.shape: {result.z_L.shape}, dim: {result.z_L.dim()}")
-
-        return result
 
     def forward(self, carry: TinyRecursiveReasoningModel_ACTV1InnerCarry, batch: Dict[str, torch.Tensor]) -> Tuple[TinyRecursiveReasoningModel_ACTV1InnerCarry, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         seq_info = dict(
@@ -567,33 +554,15 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
         # Convert z_H and z_L to LSTM initial states
         # Take mean across sequence dimension to get initial h_0 and c_0
         # Shape: (num_layers * num_directions, batch, hidden)
-        print(f"\n[DEBUG h_0/c_0 creation]")
-        print(f"  z_H.shape before mean: {z_H.shape}, dim: {z_H.dim()}")
-        z_H_mean = z_H.mean(dim=1)
-        print(f"  z_H.mean(dim=1).shape: {z_H_mean.shape}, dim: {z_H_mean.dim()}")
-        z_H_mean_unsqueezed = z_H_mean.unsqueeze(0)
-        print(f"  after unsqueeze(0).shape: {z_H_mean_unsqueezed.shape}, dim: {z_H_mean_unsqueezed.dim()}")
-
-        h_0 = z_H_mean_unsqueezed.expand(
+        h_0 = z_H.mean(dim=1).unsqueeze(0).expand(
             self.config.num_layers * num_directions, -1, -1
         ).contiguous()
-        print(f"  h_0 final shape: {h_0.shape}, dim: {h_0.dim()}")
-
         c_0 = z_L.mean(dim=1).unsqueeze(0).expand(
             self.config.num_layers * num_directions, -1, -1
         ).contiguous()
-        print(f"  c_0 final shape: {c_0.shape}, dim: {c_0.dim()}")
 
         # Run LSTM for multiple cycles
         for _step in range(self.config.H_cycles * self.config.L_cycles):
-            # DEBUG: Print shapes before LSTM call
-            print(f"\n[DEBUG] Iteration {_step}")
-            print(f"  input_embeddings.shape: {input_embeddings.shape}")
-            print(f"  h_0.shape: {h_0.shape}, h_0.dim(): {h_0.dim()}")
-            print(f"  c_0.shape: {c_0.shape}, c_0.dim(): {c_0.dim()}")
-            print(f"  z_H.shape: {z_H.shape}")
-            print(f"  z_L.shape: {z_L.shape}")
-
             # LSTM forward pass - convert to float32 as LSTM requires it
             output, (h_n, c_n) = self.lstm(
                 input_embeddings.to(torch.float32),
