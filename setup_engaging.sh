@@ -33,4 +33,4 @@ echo "2. Activate the environment with: conda activate skiptrm"
 
 python dataset/build_sudoku_dataset.py --output-dir data/sudoku-extreme-1k-aug-1000  --subsample-size 1000 --num-aug 1000
 
-sbatch run_skip_trm_autoresume.sh 50000 10000
+sbatch run_scripts/run_lstm.sh 50000 10000
