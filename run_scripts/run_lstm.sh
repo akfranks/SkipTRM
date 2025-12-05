@@ -10,8 +10,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
-#SBATCH --time=48:00:00
-#SBATCH --partition=gpu
+#SBATCH --time=47:00:00
+#SBATCH --partition=mit_preemptable
 #SBATCH --requeue
 
 # Parse arguments
