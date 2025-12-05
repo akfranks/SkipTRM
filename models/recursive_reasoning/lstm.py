@@ -605,6 +605,11 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
             h_n = h_n.to(self.forward_dtype)
             c_n = c_n.to(self.forward_dtype)
 
+            if h_n.dim() == 4 and h_n.shape[1] == 1:
+                h_n = h_n.squeeze(1)
+            if c_n.dim() == 4 and c_n.shape[1] == 1:
+                c_n = c_n.squeeze(1)
+
             # Update states for next iteration
             h_0 = h_n
             c_0 = c_n
