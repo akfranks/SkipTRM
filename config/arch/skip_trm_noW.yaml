@@ -1,4 +1,4 @@
-name: recursive_reasoning.skip_trm@TinyRecursiveReasoningModel_ACTV1
+name: recursive_reasoning.skip_trm_noW@TinyRecursiveReasoningModel_ACTV1
 loss:
   name: losses@ACTLossHead
   loss_type: stablemax_cross_entropy
