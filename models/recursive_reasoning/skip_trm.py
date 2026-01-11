@@ -67,6 +67,9 @@ class TinyRecursiveReasoningModel_ACTV1Config(BaseModel):
     # Sliding: z_t = f({z_{t-skip}})
     # Fixed: z_t = f(z_{(t//skip)*skip})
     sliding_skips: bool = True
+    
+    # Skip function type: "identity" (sum), "linear" (concat+linear), "nonlinear" (concat+linear+silu+linear)
+    skip_fn_type: str = "nonlinear"
 
 class TinyRecursiveReasoningModel_ACTV1Block(nn.Module):
     def __init__(self, config: TinyRecursiveReasoningModel_ACTV1Config) -> None:
@@ -152,13 +155,22 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
         else:
             pass
 
-        # Skip Weights
+        # Skip connections
         self.skips = self.config.skips
-        self.skip_weights = torch.nn.ParameterDict({
-            f'w_{skip}': torch.nn.Parameter(torch.randn(self.config.hidden_size, self.config.hidden_size, dtype=self.forward_dtype))  # bfloat16
-            for skip in self.skips
-        })
         self.max_skip = max(self.skips)
+        
+        # f_skip: processes concatenated/summed skip connections
+        num_skips = len(self.skips)
+        if self.config.skip_fn_type == "nonlinear":
+            self.f_skip = nn.Sequential(
+                CastedLinear(self.config.hidden_size * num_skips, self.config.hidden_size, bias=False),
+                nn.SiLU(),
+                CastedLinear(self.config.hidden_size, self.config.hidden_size, bias=False),
+            )
+        elif self.config.skip_fn_type == "linear":
+            self.f_skip = CastedLinear(self.config.hidden_size * num_skips, self.config.hidden_size, bias=False)
+        else:  # "identity" - sum directly
+            self.f_skip = None
 
         # Reasoning Layers
         self.L_level = TinyRecursiveReasoningModel_ACTV1ReasoningModule(layers=[TinyRecursiveReasoningModel_ACTV1Block(self.config) for _i in range(self.config.L_layers)])
@@ -230,31 +242,39 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
         with torch.no_grad():
             for _H_step in range(self.config.H_cycles-1):
                 for t in range(self.max_skip):
-                    # Add skip connections first
-                    skip_sum = z
-                    for skip in self.skips:
-                        if self.config.sliding_skips:
-                            skip_h = current_zs[..., t - skip]
-                        else:
-                            skip_h = current_zs[..., (t // skip)*skip]
-                        skip_sum = skip_sum + torch.matmul(skip_h, self.skip_weights[f'w_{skip}'])
-                    # Then process through L_level
-                    z = self.L_level(skip_sum, input_embeddings, **seq_info)
-                    current_zs[..., t] = z # no grad, so in-place is fine
+                    # Process skip connections
+                    if self.f_skip is None:  # identity: sum directly
+                        skip_processed = sum(
+                            current_zs[..., t - skip] if self.config.sliding_skips else current_zs[..., (t // skip)*skip]
+                            for skip in self.skips
+                        )
+                    else:  # linear or nonlinear: concat then transform
+                        skip_list = [
+                            current_zs[..., t - skip] if self.config.sliding_skips else current_zs[..., (t // skip)*skip]
+                            for skip in self.skips
+                        ]
+                        skip_concat = torch.cat(skip_list, dim=-1)
+                        skip_processed = self.f_skip(skip_concat)
+                    # z_{t-1} goes direct + processed skips
+                    z = self.L_level(z + skip_processed, input_embeddings, **seq_info)
+                    current_zs[..., t] = z  # no grad, so in-place is fine
 
         # Final H cycle
         final_zs = [current_zs[..., i].detach().clone() for i in range(self.max_skip)]  # Clone to avoid in-place issues
         for t in range(self.max_skip):
-            # Add skip connections first
-            skip_sum = z
-            for skip in self.skips:
-                if self.config.sliding_skips:
-                    skip_z = final_zs[t - skip]  # Reads freshly computed values from this iteration
-                else:
-                    skip_z = final_zs[(t // skip)*skip]
-                skip_sum = skip_sum + torch.matmul(skip_z, self.skip_weights[f'w_{skip}'])
-            # Then process through L_level
-            z = self.L_level(skip_sum, input_embeddings, **seq_info)
+            if self.f_skip is None:  # identity: sum directly
+                skip_processed = sum(
+                    final_zs[t - skip] if self.config.sliding_skips else final_zs[(t // skip)*skip]
+                    for skip in self.skips
+                )
+            else:  # linear or nonlinear: concat then transform
+                skip_list = [
+                    final_zs[t - skip] if self.config.sliding_skips else final_zs[(t // skip)*skip]
+                    for skip in self.skips
+                ]
+                skip_concat = torch.cat(skip_list, dim=-1)
+                skip_processed = self.f_skip(skip_concat)
+            z = self.L_level(z + skip_processed, input_embeddings, **seq_info)
             final_zs[t] = z
 
         # LM Outputs
