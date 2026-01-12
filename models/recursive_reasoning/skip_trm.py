@@ -59,6 +59,7 @@ class TinyRecursiveReasoningModel_ACTV1Config(BaseModel):
     mlp_t: bool = False # use mlp on L instead of transformer
     puzzle_emb_len: int = 16 # if non-zero, its specified to this value
     no_ACT_continue: bool =  True # No continue ACT loss, only use the sigmoid of the halt which makes much more sense
+    no_ACT: bool = False  # If True, always use halt_max_steps (no early halting during training)
     
     # Added for skip TRM
     output_layers: int = 0 # number of transformer blocks to apply before LM head (0 = direct to LM head)
@@ -345,7 +346,7 @@ class TinyRecursiveReasoningModel_ACTV1(nn.Module):
             halted = is_last_step
 
             # if training, and ACT is enabled
-            if self.training and (self.config.halt_max_steps > 1):
+            if self.training and (self.config.halt_max_steps > 1) and not self.config.no_ACT:
 
                 # Halt signal
                 # NOTE: During evaluation, always use max steps, this is to guarantee the same halting steps inside a batch for batching purposes
