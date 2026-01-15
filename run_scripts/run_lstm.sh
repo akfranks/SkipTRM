@@ -62,6 +62,7 @@ echo "Max epochs: $MAX_EPOCHS, Eval interval: $EVAL_INTERVAL"
 
 python3 pretrain.py \
     arch=lstm \
+    global_batch_size=256 \
     data_paths="[data/sudoku-extreme-1k-aug-1000]" \
     evaluators="[]" \
     epochs=$MAX_EPOCHS \

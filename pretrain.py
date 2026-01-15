@@ -419,8 +419,22 @@ def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, glo
 
             # Postprocess
             count = max(reduced_metrics["count"], 1)  # Avoid NaNs
-            reduced_metrics = {f"train/{k}": v / (global_batch_size if k.endswith("loss") else count) for k, v in reduced_metrics.items()}
+            batch_size_actual = reduced_metrics.get("batch_size", global_batch_size)
+            halted_count = reduced_metrics.get("halted_count", count)
 
+            # Debug: print normalization values
+            if train_state.step % 10 == 0:
+                print(f"[DEBUG pretrain.py] step={train_state.step}, count={count}, halted={halted_count}, batch_size={batch_size_actual}, global_batch={global_batch_size}, lr={lr_this_step:.2e}")
+
+            # Normalize: losses by global_batch_size, other metrics by count
+            reduced_metrics = {f"train/{k}": v / (global_batch_size if k.endswith("loss") else count)
+                             for k, v in reduced_metrics.items()
+                             if k not in ["batch_size", "halted_count"]}  # Don't normalize debug metrics
+
+            # Add debug metrics without normalization
+            reduced_metrics["train/valid_count"] = count
+            reduced_metrics["train/halted_count"] = halted_count
+            reduced_metrics["train/batch_size"] = batch_size_actual
             reduced_metrics["train/lr"] = lr_this_step
             return reduced_metrics
 
@@ -641,6 +655,7 @@ def launch(hydra_config: DictConfig):
     # Load sync'ed config
     config = load_synced_config(hydra_config, rank=RANK, world_size=WORLD_SIZE)
     print(f"{config.run_name=}")
+    print(f"{config.global_batch_size=}")
 
     # Seed RNGs to ensure consistency
     torch.random.manual_seed(config.seed + RANK)

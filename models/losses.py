@@ -72,9 +72,17 @@ class ACTLossHead(nn.Module):
             
             # Metrics (halted)
             valid_metrics = new_carry.halted & (loss_counts > 0)
+
+            # Store counts for debugging (without causing graph breaks)
+            valid_count = valid_metrics.sum()
+            halted_count = new_carry.halted.sum()
+            batch_size_count = torch.tensor(labels.shape[0], device=valid_count.device)
+
             metrics = {
-                "count": valid_metrics.sum(),
-                
+                "count": valid_count,
+                "batch_size": batch_size_count,  # Track actual batch size
+                "halted_count": halted_count,     # Track halted sequences
+
                 "accuracy":       torch.where(valid_metrics, (is_correct.to(torch.float32) / loss_divisor).sum(-1), 0).sum(),
                 "exact_accuracy": (valid_metrics & seq_is_correct).sum(),
 
