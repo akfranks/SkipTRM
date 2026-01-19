@@ -30,4 +30,4 @@ output_layers: 0
 global_batch_size: 768
 
 sliding_skips: true
-skip_fn_type: nonlinear  # Options: "identity", "linear", "nonlinear", "block"
+skip_fn_type: block  # Options: "identity", "linear", "nonlinear", "block"
