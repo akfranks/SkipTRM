@@ -69,7 +69,7 @@ class TinyRecursiveReasoningModel_ACTV1Config(BaseModel):
     # Fixed: z_t = f(z_{(t//skip)*skip})
     sliding_skips: bool = True
     
-    # Skip function type: "identity" (sum), "linear" (concat+linear), "nonlinear" (concat+linear+silu+linear)
+    # Skip function type: "identity" (sum), "linear" (concat+linear), "nonlinear" (concat+linear+silu+linear), "block" (L_layers blocks)
     skip_fn_type: str = "nonlinear"
 
 class TinyRecursiveReasoningModel_ACTV1Block(nn.Module):
@@ -113,6 +113,7 @@ class TinyRecursiveReasoningModel_ACTV1Block(nn.Module):
         hidden_states = rms_norm(hidden_states + out, variance_epsilon=self.norm_eps)
         return hidden_states
 
+
 class TinyRecursiveReasoningModel_ACTV1ReasoningModule(nn.Module):
     def __init__(self, layers: List[TinyRecursiveReasoningModel_ACTV1Block]):
         super().__init__()
@@ -123,6 +124,26 @@ class TinyRecursiveReasoningModel_ACTV1ReasoningModule(nn.Module):
         for layer in self.layers:
             hidden_states = layer(hidden_states=hidden_states, **kwargs)
         return hidden_states
+
+
+class BlockSkip(nn.Module):
+    """Wrapper for block-based skip function. Reuses existing Block class."""
+    
+    def __init__(self, config: TinyRecursiveReasoningModel_ACTV1Config, num_skips: int):
+        super().__init__()
+        self.blocks = nn.ModuleList([
+            TinyRecursiveReasoningModel_ACTV1Block(config) 
+            for _ in range(config.L_layers)
+        ])
+        # Only need projection if num_skips > 1
+        self.proj = CastedLinear(config.hidden_size * num_skips, config.hidden_size, bias=False) if num_skips > 1 else None
+
+    def forward(self, x: torch.Tensor, cos_sin: CosSin = None) -> torch.Tensor:
+        if self.proj is not None:
+            x = self.proj(x)
+        for block in self.blocks:
+            x = block(cos_sin=cos_sin, hidden_states=x)
+        return x
 
 
 class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
@@ -170,6 +191,8 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
             )
         elif self.config.skip_fn_type == "linear":
             self.f_skip = CastedLinear(self.config.hidden_size * num_skips, self.config.hidden_size, bias=False)
+        elif self.config.skip_fn_type == "block":
+            self.f_skip = BlockSkip(self.config, num_skips)
         else:  # "identity" - sum directly
             self.f_skip = None
 
@@ -243,44 +266,46 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
         with torch.no_grad():
             for _H_step in range(self.config.H_cycles-1):
                 for t in range(self.max_skip):
+                    # Gather skip states
+                    if self.config.sliding_skips:
+                        skip_list = [current_zs[..., t - skip] for skip in self.skips]
+                    else:
+                        skip_list = [current_zs[..., (t // skip)*skip] for skip in self.skips]
                     # Process skip connections
-                    if self.f_skip is None:  # identity: sum directly
-                        skip_processed = sum(
-                            current_zs[..., t - skip] if self.config.sliding_skips else current_zs[..., (t // skip)*skip]
-                            for skip in self.skips
-                        )
-                    else:  # linear or nonlinear: concat then transform
-                        skip_list = [
-                            current_zs[..., t - skip] if self.config.sliding_skips else current_zs[..., (t // skip)*skip]
-                            for skip in self.skips
-                        ]
+                    if self.f_skip is None:
+                        skip_processed = sum(skip_list)
+                    else:
                         skip_concat = torch.cat(skip_list, dim=-1)
-                        skip_processed = self.f_skip(skip_concat)
-                    # z_{t-1} goes direct + processed skips
+                        if isinstance(self.f_skip, BlockSkip):
+                            skip_processed = self.f_skip(skip_concat, cos_sin=seq_info['cos_sin'])
+                        else:
+                            skip_processed = self.f_skip(skip_concat)
                     z = self.L_level(z + skip_processed, input_embeddings, **seq_info)
-                    current_zs[..., t] = z  # no grad, so in-place is fine
+                    current_zs[..., t] = z # no grad, so in-place is fine
 
-        # Final H cycle
+        # Final H cycle (with grad)
         final_zs = [current_zs[..., i].detach().clone() for i in range(self.max_skip)]  # Clone to avoid in-place issues
         for t in range(self.max_skip):
-            if self.f_skip is None:  # identity: sum directly
-                skip_processed = sum(
-                    final_zs[t - skip] if self.config.sliding_skips else final_zs[(t // skip)*skip]
-                    for skip in self.skips
-                )
-            else:  # linear or nonlinear: concat then transform
-                skip_list = [
-                    final_zs[t - skip] if self.config.sliding_skips else final_zs[(t // skip)*skip]
-                    for skip in self.skips
-                ]
+            # Gather skip states from list
+            if self.config.sliding_skips:
+                skip_list = [final_zs[t - skip] for skip in self.skips]
+            else:
+                skip_list = [final_zs[(t // skip)*skip] for skip in self.skips]
+            # Process skip connections
+            if self.f_skip is None:
+                skip_processed = sum(skip_list)
+            else:
                 skip_concat = torch.cat(skip_list, dim=-1)
-                skip_processed = self.f_skip(skip_concat)
+                if isinstance(self.f_skip, BlockSkip):
+                    skip_processed = self.f_skip(skip_concat, cos_sin=seq_info['cos_sin'])
+                else:
+                    skip_processed = self.f_skip(skip_concat)
             z = self.L_level(z + skip_processed, input_embeddings, **seq_info)
             final_zs[t] = z
 
         # LM Outputs
-        final_zs = torch.stack(final_zs, dim=-1)  # B, L, D, max_skip
-        new_carry = TinyRecursiveReasoningModel_ACTV1InnerCarry(zs=final_zs.detach())  # Detach for carry
+        final_zs = torch.stack(final_zs, dim=-1)  # B, L, D, max_skip - stack preserves gradients
+        new_carry = TinyRecursiveReasoningModel_ACTV1InnerCarry(zs=final_zs.detach())
 
         # Get final hidden states for output
         output_hidden = final_zs[..., -1]  # B, L, D
