@@ -65,7 +65,9 @@ def build_hydra_overrides(
             value = config[key]
             # Handle lists specially for Hydra
             if isinstance(value, list):
-                args.append(f'{key}="{value}"')
+                # Format as Hydra list syntax: [item1,item2,...]
+                list_str = "[" + ",".join(str(v) for v in value) + "]"
+                args.append(f"{key}={list_str}")
             elif isinstance(value, bool):
                 args.append(f"{key}={str(value)}")
             else:
