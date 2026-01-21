@@ -76,13 +76,13 @@ experiments:
     priority: 1
     arch: skip_trm
     category: skip_pattern_ablation
+    global_batch_size: 768
     overrides:
       skips: [1, 13]
       L_layers: 1
       hidden_size: 512
       sliding_skips: true
       output_layers: 2
-      global_batch_size: 768
       mlp_t: true
       pos_encodings: none
 
@@ -91,13 +91,13 @@ experiments:
     priority: 1
     arch: skip_trm
     category: skip_pattern_ablation
+    global_batch_size: 256
     overrides:
       skips: [1, 7]
       L_layers: 2
       hidden_size: 512
       sliding_skips: true
       output_layers: 2
-      global_batch_size: 256
       mlp_t: true
       pos_encodings: none
 
@@ -106,13 +106,13 @@ experiments:
     priority: 1
     arch: skip_trm
     category: skip_pattern_ablation
+    global_batch_size: 256
     overrides:
       skips: [1, 7]
       L_layers: 2
       hidden_size: 512
       sliding_skips: false
       output_layers: 2
-      global_batch_size: 256
       mlp_t: true
       pos_encodings: none
 
@@ -121,13 +121,13 @@ experiments:
     priority: 1
     arch: skip_trm
     category: skip_pattern_ablation
+    global_batch_size: 768
     overrides:
       skips: [1, 13]
       L_layers: 1
       hidden_size: 512
       sliding_skips: false
       output_layers: 2
-      global_batch_size: 768
       mlp_t: true
       pos_encodings: none
 
@@ -241,13 +241,13 @@ experiments:
     priority: 1
     arch: skip_trm_sof
     category: sof_architecture
+    global_batch_size: 256
     overrides:
       skips: [1, 7]
       L_layers: 2
       hidden_size: 512
       sliding_skips: true
       output_layers: 2
-      global_batch_size: 256
       mlp_t: true
       pos_encodings: none
 
@@ -256,13 +256,13 @@ experiments:
     priority: 1
     arch: skip_trm_sof
     category: sof_architecture
+    global_batch_size: 256
     overrides:
       skips: [1, 7]
       L_layers: 2
       hidden_size: 512
       sliding_skips: false
       output_layers: 2
-      global_batch_size: 256
       mlp_t: true
       pos_encodings: none
 
@@ -271,13 +271,13 @@ experiments:
     priority: 1
     arch: skip_trm_sof
     category: sof_architecture
+    global_batch_size: 768
     overrides:
       skips: [1, 13]
       L_layers: 1
       hidden_size: 512
       sliding_skips: true
       output_layers: 2
-      global_batch_size: 768
       mlp_t: true
       pos_encodings: none
 
@@ -286,13 +286,13 @@ experiments:
     priority: 1
     arch: skip_trm_sof
     category: sof_architecture
+    global_batch_size: 768
     overrides:
       skips: [1, 13]
       L_layers: 1
       hidden_size: 512
       sliding_skips: false
       output_layers: 2
-      global_batch_size: 768
       mlp_t: true
       pos_encodings: none
 
