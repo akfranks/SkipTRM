@@ -68,6 +68,7 @@ source activate skiptrm 2>/dev/null || conda activate skiptrm 2>/dev/null || tru
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 export HYDRA_FULL_ERROR=1
+export DISABLE_COMPILE=1  # Disable torch.compile due to triton version incompatibility
 
 # Clear CUDA cache
 python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null || true
