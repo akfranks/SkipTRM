@@ -1,0 +1,681 @@
+# Experiment Registry for TinyRecursiveModels
+# ===========================================
+# Comprehensive test suite based on 9.52 report recommendations
+#
+# Naming Convention: <model>_<variant>_<key_params>
+# - act<N>: halt_max_steps
+# - h<N>: hidden_size
+# - s<list>: skip connections
+# - l<N>: L_layers
+# - H<N>L<N>: H_cycles/L_cycles
+# - sof: sum-of-function-outputs architecture
+#
+# Priority Levels:
+#   1 = Critical (must run first)
+#   2 = High (important for analysis)
+#   3 = Medium (additional insights)
+#   4 = Low (nice to have)
+
+defaults:
+  data_paths: ["data/sudoku-extreme-1k-aug-1000"]
+  epochs: 50000
+  eval_interval: 5000
+  global_batch_size: 768
+  lr: 1e-4
+  puzzle_emb_lr: 1e-4
+  weight_decay: 1.0
+  puzzle_emb_weight_decay: 1.0
+  ema: true
+  checkpoint_every_eval: true
+  project_name: "TinyRecursiveModels"
+  halt_max_steps: 16
+  halt_exploration_prob: 0.1
+  forward_dtype: bfloat16
+
+experiments:
+  # ===========================================================================
+  # BASELINES (Priority 1)
+  # ===========================================================================
+
+  trm_baseline_h512:
+    description: "TRM baseline from paper - H_cycles=3, L_cycles=6"
+    priority: 1
+    arch: trm
+    category: baseline
+    overrides:
+      hidden_size: 512
+      H_cycles: 3
+      L_cycles: 6
+      L_layers: 2
+
+  lstm_baseline_h512:
+    description: "LSTM baseline for comparison"
+    priority: 1
+    arch: lstm
+    category: baseline
+    overrides:
+      hidden_size: 512
+      num_layers: 4
+      H_cycles: 3
+      L_cycles: 6
+
+  transformer_baseline_h512:
+    description: "Standard transformer without recursion"
+    priority: 1
+    arch: transformers_baseline
+    category: baseline
+    overrides:
+      hidden_size: 512
+
+  # ===========================================================================
+  # SKIP PATTERN ABLATION (Priority 1) - Most Critical Missing Tests
+  # ===========================================================================
+
+  skip_sliding_s13_l1_h512:
+    description: "Sliding skip [1,13] with 1 layer - best from 9.52 report (83%)"
+    priority: 1
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 13]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      global_batch_size: 768
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s17_l2_h512:
+    description: "Sliding skip [1,7] with 2 layers - baseline from 9.52 report"
+    priority: 1
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      global_batch_size: 256
+      mlp_t: true
+      pos_encodings: none
+
+  skip_fixed_s17_l2_h512:
+    description: "Fixed skip [1,7] with 2 layers - for sliding vs fixed comparison"
+    priority: 1
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: false
+      output_layers: 2
+      global_batch_size: 256
+      mlp_t: true
+      pos_encodings: none
+
+  skip_fixed_s13_l1_h512:
+    description: "Fixed skip [1,13] with 1 layer - comparison to sliding"
+    priority: 1
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 13]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: false
+      output_layers: 2
+      global_batch_size: 768
+      mlp_t: true
+      pos_encodings: none
+
+  # Additional skip patterns to explore design space
+  skip_sliding_s13_l1_h512_short:
+    description: "Skip [1,3] - short-range skip ablation"
+    priority: 2
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 3]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s15_l1_h512:
+    description: "Skip [1,5] - medium-range skip ablation"
+    priority: 2
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 5]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s19_l1_h512:
+    description: "Skip [1,9] - longer-range skip ablation"
+    priority: 2
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 9]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s111_l1_h512:
+    description: "Skip [1,11] - longer-range skip ablation"
+    priority: 2
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 11]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s1357_l1_h512:
+    description: "Skip [1,3,5,7] - multi-scale skip ablation"
+    priority: 2
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 3, 5, 7]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s1513_l1_h512:
+    description: "Skip [1,5,13] - sparse multi-scale skip"
+    priority: 2
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 5, 13]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s1248_l1_h512:
+    description: "Skip [1,2,4,8] - original multi-scale pattern"
+    priority: 2
+    arch: skip_trm
+    category: skip_pattern_ablation
+    overrides:
+      skips: [1, 2, 4, 8]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  # ===========================================================================
+  # NEW ARCHITECTURE: SUM-OF-FUNCTION-OUTPUTS VARIANT (Priority 1)
+  # ===========================================================================
+  # These use the new architecture where f is called for each skip separately
+  # z_t = f(x) + sum_i f(W_i * z_{t-i}) instead of z_t = f(x + sum_i W_i * z_{t-i})
+
+  skip_sof_sliding_s17_l2_h512:
+    description: "Sum-of-functions sliding skip [1,7] 2 layers - new architecture"
+    priority: 1
+    arch: skip_trm_sof
+    category: sof_architecture
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      global_batch_size: 256
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sof_fixed_s17_l2_h512:
+    description: "Sum-of-functions fixed skip [1,7] 2 layers - new architecture"
+    priority: 1
+    arch: skip_trm_sof
+    category: sof_architecture
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: false
+      output_layers: 2
+      global_batch_size: 256
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sof_sliding_s13_l1_h512:
+    description: "Sum-of-functions sliding skip [1,13] 1 layer - new architecture"
+    priority: 1
+    arch: skip_trm_sof
+    category: sof_architecture
+    overrides:
+      skips: [1, 13]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      global_batch_size: 768
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sof_fixed_s13_l1_h512:
+    description: "Sum-of-functions fixed skip [1,13] 1 layer - new architecture"
+    priority: 1
+    arch: skip_trm_sof
+    category: sof_architecture
+    overrides:
+      skips: [1, 13]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: false
+      output_layers: 2
+      global_batch_size: 768
+      mlp_t: true
+      pos_encodings: none
+
+  # ===========================================================================
+  # COMPUTATIONAL DEPTH SCALING (Priority 2)
+  # ===========================================================================
+
+  skip_sliding_s15_l3_h512:
+    description: "3 layers x skip 5 = ~15 depth, compare to 1 layer x skip 15"
+    priority: 2
+    arch: skip_trm
+    category: depth_scaling
+    overrides:
+      skips: [1, 5]
+      L_layers: 3
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s17_l1_h512:
+    description: "1 layer x skip 7 - reduced from 2 layers"
+    priority: 2
+    arch: skip_trm
+    category: depth_scaling
+    overrides:
+      skips: [1, 7]
+      L_layers: 1
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s17_l3_h512:
+    description: "3 layers x skip 7 - increased capacity"
+    priority: 2
+    arch: skip_trm
+    category: depth_scaling
+    overrides:
+      skips: [1, 7]
+      L_layers: 3
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  # ===========================================================================
+  # PARAMETER-MATCHED COMPARISONS (Priority 2)
+  # ===========================================================================
+
+  skip_sliding_s13_l1_h768:
+    description: "1 layer skip[1,13] with h768 - param-matched to 2-layer h512"
+    priority: 2
+    arch: skip_trm
+    category: param_matched
+    overrides:
+      skips: [1, 13]
+      L_layers: 1
+      hidden_size: 768
+      num_heads: 12
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s17_l2_h384:
+    description: "2 layers with reduced hidden size - param reduction test"
+    priority: 3
+    arch: skip_trm
+    category: param_matched
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 384
+      num_heads: 6
+      sliding_skips: true
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  # ===========================================================================
+  # OUTPUT LAYER ABLATION (Priority 3)
+  # ===========================================================================
+
+  skip_sliding_s17_l2_h512_out0:
+    description: "No output layers - direct to LM head"
+    priority: 3
+    arch: skip_trm
+    category: output_ablation
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 0
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s17_l2_h512_out1:
+    description: "1 output layer"
+    priority: 3
+    arch: skip_trm
+    category: output_ablation
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 1
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s17_l2_h512_out4:
+    description: "4 output layers - increased capacity"
+    priority: 3
+    arch: skip_trm
+    category: output_ablation
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 4
+      mlp_t: true
+      pos_encodings: none
+
+  # ===========================================================================
+  # H_CYCLES ABLATION (Priority 3)
+  # ===========================================================================
+
+  skip_sliding_s17_l2_H2:
+    description: "H_cycles=2 - reduced cycles"
+    priority: 3
+    arch: skip_trm
+    category: H_cycles_ablation
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: true
+      H_cycles: 2
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s17_l2_H4:
+    description: "H_cycles=4 - increased cycles"
+    priority: 3
+    arch: skip_trm
+    category: H_cycles_ablation
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: true
+      H_cycles: 4
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s17_l2_H5:
+    description: "H_cycles=5 - higher cycles"
+    priority: 3
+    arch: skip_trm
+    category: H_cycles_ablation
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: true
+      H_cycles: 5
+      output_layers: 2
+      mlp_t: true
+      pos_encodings: none
+
+  # ===========================================================================
+  # ACT STEPS ABLATION (Priority 3)
+  # ===========================================================================
+
+  skip_sliding_s17_l2_act8:
+    description: "halt_max_steps=8 - reduced ACT budget"
+    priority: 3
+    arch: skip_trm
+    category: act_ablation
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      halt_max_steps: 8
+      mlp_t: true
+      pos_encodings: none
+
+  skip_sliding_s17_l2_act32:
+    description: "halt_max_steps=32 - increased ACT budget"
+    priority: 3
+    arch: skip_trm
+    category: act_ablation
+    overrides:
+      skips: [1, 7]
+      L_layers: 2
+      hidden_size: 512
+      sliding_skips: true
+      output_layers: 2
+      halt_max_steps: 32
+      mlp_t: true
+      pos_encodings: none
+
+  # ===========================================================================
+  # TRM VARIANTS (Priority 2)
+  # ===========================================================================
+
+  trm_H2L6_h512:
+    description: "TRM with H_cycles=2, L_cycles=6"
+    priority: 2
+    arch: trm
+    category: trm_variants
+    overrides:
+      hidden_size: 512
+      H_cycles: 2
+      L_cycles: 6
+      L_layers: 2
+
+  trm_H4L6_h512:
+    description: "TRM with H_cycles=4, L_cycles=6"
+    priority: 2
+    arch: trm
+    category: trm_variants
+    overrides:
+      hidden_size: 512
+      H_cycles: 4
+      L_cycles: 6
+      L_layers: 2
+
+  trm_H3L4_h512:
+    description: "TRM with reduced L_cycles=4"
+    priority: 2
+    arch: trm
+    category: trm_variants
+    overrides:
+      hidden_size: 512
+      H_cycles: 3
+      L_cycles: 4
+      L_layers: 2
+
+  trm_H3L8_h512:
+    description: "TRM with increased L_cycles=8"
+    priority: 2
+    arch: trm
+    category: trm_variants
+    overrides:
+      hidden_size: 512
+      H_cycles: 3
+      L_cycles: 8
+      L_layers: 2
+
+  # ===========================================================================
+  # HRM VARIANTS (Priority 2) - Full gradient tests
+  # ===========================================================================
+
+  hrm_h2l2_h512:
+    description: "HRM with 2 H-cycles, 2 L-cycles"
+    priority: 2
+    arch: hrm
+    category: hrm_variants
+    overrides:
+      hidden_size: 512
+      H_cycles: 2
+      L_cycles: 2
+      H_layers: 4
+      L_layers: 4
+
+  hrm_h3l3_h512:
+    description: "Deeper HRM with 3 H-cycles, 3 L-cycles"
+    priority: 2
+    arch: hrm
+    category: hrm_variants
+    overrides:
+      hidden_size: 512
+      H_cycles: 3
+      L_cycles: 3
+      H_layers: 4
+      L_layers: 4
+
+  # ===========================================================================
+  # QUICK TEST (for debugging)
+  # ===========================================================================
+
+  test_quick:
+    description: "Quick test run for debugging"
+    priority: 4
+    arch: lstm
+    category: test
+    epochs: 100
+    eval_interval: 50
+    global_batch_size: 64
+    overrides:
+      hidden_size: 128
+      num_layers: 2
+
+# ===========================================================================
+# STATUS TRACKING
+# ===========================================================================
+
+status:
+  # Baselines
+  trm_baseline_h512: pending
+  lstm_baseline_h512: pending
+  transformer_baseline_h512: pending
+
+  # Skip Pattern Ablation (Priority 1)
+  skip_sliding_s13_l1_h512: pending
+  skip_sliding_s17_l2_h512: pending
+  skip_fixed_s17_l2_h512: pending
+  skip_fixed_s13_l1_h512: pending
+
+  # SOF Architecture (Priority 1)
+  skip_sof_sliding_s17_l2_h512: pending
+  skip_sof_fixed_s17_l2_h512: pending
+  skip_sof_sliding_s13_l1_h512: pending
+  skip_sof_fixed_s13_l1_h512: pending
+
+  # Skip Pattern Ablation (Priority 2)
+  skip_sliding_s13_l1_h512_short: pending
+  skip_sliding_s15_l1_h512: pending
+  skip_sliding_s19_l1_h512: pending
+  skip_sliding_s111_l1_h512: pending
+  skip_sliding_s1357_l1_h512: pending
+  skip_sliding_s1513_l1_h512: pending
+  skip_sliding_s1248_l1_h512: pending
+
+# ===========================================================================
+# PRIORITY TEST GROUPS
+# ===========================================================================
+
+priority_groups:
+  critical:
+    description: "Must run first - critical comparisons"
+    experiments:
+      - trm_baseline_h512
+      - skip_sliding_s13_l1_h512
+      - skip_sliding_s17_l2_h512
+      - skip_fixed_s17_l2_h512
+      - skip_fixed_s13_l1_h512
+      - skip_sof_sliding_s17_l2_h512
+      - skip_sof_fixed_s17_l2_h512
+      - skip_sof_sliding_s13_l1_h512
+      - skip_sof_fixed_s13_l1_h512
+
+  skip_ablation:
+    description: "Skip pattern exploration"
+    experiments:
+      - skip_sliding_s13_l1_h512_short
+      - skip_sliding_s15_l1_h512
+      - skip_sliding_s19_l1_h512
+      - skip_sliding_s111_l1_h512
+      - skip_sliding_s1357_l1_h512
+      - skip_sliding_s1513_l1_h512
+      - skip_sliding_s1248_l1_h512
+
+  depth_analysis:
+    description: "Computational depth vs capacity tradeoffs"
+    experiments:
+      - skip_sliding_s15_l3_h512
+      - skip_sliding_s17_l1_h512
+      - skip_sliding_s17_l3_h512
+
+  trm_variants:
+    description: "TRM architecture variants"
+    experiments:
+      - trm_H2L6_h512
+      - trm_H4L6_h512
+      - trm_H3L4_h512
+      - trm_H3L8_h512
+
+  sof_architecture:
+    description: "Sum-of-function-outputs new architecture tests"
+    experiments:
+      - skip_sof_sliding_s17_l2_h512
+      - skip_sof_fixed_s17_l2_h512
+      - skip_sof_sliding_s13_l1_h512
+      - skip_sof_fixed_s13_l1_h512

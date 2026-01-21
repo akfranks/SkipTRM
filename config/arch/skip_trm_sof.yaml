@@ -1,0 +1,42 @@
+# Skip-TRM with Sum-of-Function-Outputs (SOF) Architecture
+# =========================================================
+# New architecture variant where:
+#   Standard: z_t = f(x + Σ W_i * z_{t-i})
+#   SOF:      z_t = f(x) + Σ f(W_i * z_{t-i})
+#
+# Each skip connection is processed through its own L_level pass,
+# then outputs are summed. This tests whether independent processing
+# of skip connections improves expressivity.
+
+name: recursive_reasoning.skip_trm_sof@TinyRecursiveReasoningModel_ACTV1
+loss:
+  name: losses@ACTLossHead
+  loss_type: stablemax_cross_entropy
+
+halt_exploration_prob: 0.1
+halt_max_steps: 16
+
+H_cycles: 3
+skips: [1, 7]
+
+H_layers: 0
+L_layers: 2
+
+hidden_size: 512
+
+num_heads: 8
+expansion: 4
+
+puzzle_emb_ndim: ${.hidden_size}
+
+pos_encodings: none
+forward_dtype: bfloat16
+
+mlp_t: True
+puzzle_emb_len: 16
+no_ACT_continue: True
+output_layers: 2
+
+global_batch_size: 256
+
+sliding_skips: true
